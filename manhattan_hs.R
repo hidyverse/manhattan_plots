@@ -40,38 +40,48 @@ topgene = gene_result %>% filter(topsnp$CHR == gene_result$chrom &
                                     gene_result$txEnd > topsnp$BP)
 
 ## top genes per chromosome 
-topgene_fn = function(topsnps){
+topgene_out_fn = function(topsnps){
   gene_result %>% 
     filter(topsnps$CHR == gene_result$chrom & 
                                     topsnps$BP >  gene_result$txStart - 500000 &
                                     gene_result$txEnd + 500000 > topsnps$BP)
   
 }
+topgene_in_fn = function(topsnps){
+  gene_result %>% 
+    filter(topsnps$CHR == gene_result$chrom & 
+             topsnps$BP >  gene_result$txStart &
+             gene_result$txEnd  > topsnps$BP)
+  
+}
 
-topgenes = by(topsnps, topsnps$CHR, function(topsnps) topgene_fn(topsnps))
-topgenes = do.call(rbind.data.frame, topgenes)
+topgenes_out = by(topsnps, topsnps$CHR, function(topsnps) topgene_out_fn(topsnps))
+topgenes_in = by(topsnps, topsnps$CHR, function(topsnps) topgene_in_fn(topsnps))
+
+topgenes_out = do.call(rbind.data.frame, topgenes_out)
+topgenes_in = do.call(rbind.data.frame, topgenes_in)
 
 
 ###### HELP ######################################
-## this doesn't work when SNP inside gene LOL 
-topgenes = topgenes %>% group_by(chrom) %>%
+## this doesn't work when SNP is OUTSIDE  gene  
+topgenes_out = topgenes_out %>% group_by(chrom) %>%
   arrange(txStart) %>% 
-  slice(which.min(abs(topsnps$BP - txEnd)))
-  
+  slice(which.min(abs(topsnps$BP - txEnd) | abs( txStart - topsnps$BP)))
 
 
-topgenes$chrom = as.numeric(topgenes$chrom)
-topgenes = topgenes[order(topgenes$chrom), ]
+topgenes_out$chrom = as.numeric(topgenes_out$chrom)
+topgenes_in$chrom = as.numeric(topgenes_in$chrom)
 
-## try to make topgenes 
-topgenes = topgenes %>% group_by(chrom) %>%
-  arrange(txStart) %>% 
-  filter(which.min(abs(topsnps$BP -txEnd) & which.min(abs(txStart - topsnps$BP))))
-  
+topgenes_out = topgenes_out[order(topgenes_out$chrom), ]
+topgenes_in = topgenes_in[order(topgenes_in$chrom), ]
+topgenes_in = topgenes_in %>% distinct(name2, .keep_all = T)
+
 
 ## define snps of interest
 snpsOfInterest = dat %>% filter(topsnp$BP -50000 <  dat$BP & dat$BP < topsnp$BP +50000 & 
                                   dat$CHR == topsnp$CHR)
+
+topsnps_in = topsnps %>% filter(CHR %in% topgenes_in$chrom)
 
 
 don <- dat %>% 
@@ -93,7 +103,7 @@ don <- dat %>%
   
   # Add highlight and annotation information
   mutate( is_highlight=ifelse(SNP %in% snpsOfInterest$SNP, "yes", "no")) %>% 
-  mutate( is_annotate=ifelse(SNP %in% topsnps$SNP, "yes", "no")) 
+  mutate( is_annotate=ifelse(SNP %in% topsnps_in$SNP, "yes", "no")) 
 
 print("CONGRATULATIONS! Data was cleaned")
 
@@ -103,7 +113,7 @@ axisdf = don %>% group_by(CHR) %>% summarize(center=( max(BPcum) + min(BPcum) ) 
 
 
 ## make the plot 
-plot = ggplot(don, aes(x=BPcum, y=-log10(P))) +
+ggplot(don, aes(x=BPcum, y=-log10(P))) +
   
   # Show all points
   geom_point( aes(color=as.factor(CHR)), alpha=0.8, size=1.3) +
@@ -121,8 +131,8 @@ plot = ggplot(don, aes(x=BPcum, y=-log10(P))) +
   geom_point(data=subset(don, is_highlight=="yes"), color="#EF4056", size=2) +
   
   # Add label using ggrepel to avoid overlapping
-  geom_label_repel( data=subset(don, is_annotate=="yes"), aes(label= topgenes$name2), size=3,
-                    segment.color = "transparent", nudge_x = 3) +
+  geom_label_repel( data=subset(don, is_annotate=="yes"), aes(label= topgenes_in$name2), size=3,
+                    segment.color = "transparent", nudge_x = 4) +
 
   expand_limits(y = 10) + 
   
